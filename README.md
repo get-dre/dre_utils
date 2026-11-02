@@ -159,8 +159,9 @@ Databricks. It picks the variant for the report's database through `dispatch()`:
 `integration_tests/` is a DRE project that uses this package from `..`. `integration_tests/run.sh`
 runs its reports against an in-memory DuckDB and checks each output against `expected/`, and each
 error case against `errors.txt`; it then runs the data tests with `dre test`, checks each one's
-failure count, and installs the package from a local Git copy of this checkout to run them again
-from there. It needs `dre` on the `PATH` (or `DRE=...`) and the DuckDB and csv plugins (`dre deps`
+failure count, and installs the package macros from a temporary local Git repository. A separate
+report checks a local `not_null` pass and a source `not_empty` failure from that installation.
+It needs `dre` on the `PATH` (or `DRE=...`) and the DuckDB and csv plugins (`dre deps`
 in `integration_tests/` installs them). The Git copy goes in a temporary folder, removed after it.
 
 ## Contributing

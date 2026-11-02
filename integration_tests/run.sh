@@ -9,7 +9,13 @@ dre="${DRE:-dre}"
 export DRE_RUN_DATE=2026-03-18
 # An in-memory DuckDB: each report creates the tables it needs.
 profiles="$(mktemp -d)"
-trap 'rm -rf "$profiles"' EXIT
+yaml=reports/data_tests_report/data_tests.yml
+cleanup() {
+  if [[ -f "$profiles/original.yml" ]]; then cp "$profiles/original.yml" "$yaml"; fi
+  rm -f "$yaml.cut"
+  rm -rf "$profiles"
+}
+trap cleanup EXIT
 printf 'sources:\n  memory:\n    target: dev\n    targets:\n      dev: {type: duckdb, path: ":memory:"}\n' > "$profiles/profiles.yml"
 rm -rf target
 "$dre" run -s tag:ok --profiles-dir "$profiles"
@@ -40,7 +46,8 @@ done < errors.txt
 # is in its query's run: a data failure stops its Binding, so the report as declared runs its
 # first query with checks. The checks later in the report get runs of their own, over the report
 # cut after their query.
-checks="$(mktemp)"
+checks="$profiles/checks"
+: > "$checks"
 runs="target/run/data_tests_report/default/runs"
 collect() {
   python3 - "$1" >> "$checks" <<'PY'
@@ -57,13 +64,12 @@ collect "$runs"
 # The report cut after one query: the earlier queries without checks (the seed and the expected
 # results its checks read) and that query with its checks. The later queries go, as a failure
 # would have stopped the report before them.
-yaml=reports/data_tests_report/data_tests.yml
-cp "$yaml" "$checks.original"
+cp "$yaml" "$profiles/original.yml"
 for check in "duplicate_keys fail" "no_rows fail" "negative_amount fail" "totals_pass pass" \
              "totals_within_tolerance pass" "totals_off fail" "totals_other_column pass" \
              "source_checks fail"; do
   read -r query want <<<"$check"
-  python3 - "$checks.original" "$query" > "$yaml.cut" <<'PY'
+  python3 - "$profiles/original.yml" "$query" > "$yaml.cut" <<'PY'
 import sys
 path, last = sys.argv[1], sys.argv[2]
 head = open(path).read().split("tags: [data_tests]")[0]
@@ -84,7 +90,7 @@ print("tags: [data_tests]")
 PY
   cp "$yaml.cut" "$yaml"
   "$dre" test -s data_tests_report --profiles-dir "$profiles" >/dev/null 2>&1 && code=0 || code=$?
-  cp "$checks.original" "$yaml"
+  cp "$profiles/original.yml" "$yaml"
   if { [[ "$want" == pass && $code != 0 ]] || [[ "$want" != pass && $code != 1 ]]; }; then
     echo "FAIL: $query: its checks exited $code, but should $want"
     status=1
@@ -92,7 +98,7 @@ PY
   collect "$runs"
   rm -rf "$runs"
 done
-rm -f "$checks.original" "$yaml.cut"
+rm -f "$yaml.cut"
 # What each check must do: its query, its name, and the number of failure rows it returns (zero is
 # a pass). Each is seen once, in the report's run or in a run of its own; a check this report runs
 # that isn't listed fails too, as a check the report stops running stops finding problems.
@@ -132,23 +138,16 @@ PY
 # local Git repository outside this one, with a project that declares it. So the install needs no
 # network, and its checks must still resolve through the package's namespace: `dre test` runs them
 # and finds the bad data.
-evidence="$(mktemp -d)"
-mkdir -p "$evidence/package"
-tar -C .. -cf - --exclude=integration_tests/target --exclude=integration_tests/dre_deps \
-    --exclude=integration_tests/dre.lock --exclude=integration_tests/logs . |
-  tar -C "$evidence/package" -xf -
-rm -rf "$evidence/package/integration_tests/target" "$evidence/package/integration_tests/dre_deps" \
-       "$evidence/package/integration_tests/dre.lock" "$evidence/package/integration_tests/logs"
-mkdir -p "$evidence/project/reports"
-cp -R reports/data_tests_report "$evidence/project/reports/"
+evidence="$profiles/git"
+mkdir -p "$evidence/package" "$evidence/project/reports"
+cp ../dre_package.yml "$evidence/package/"
+cp -R ../macros "$evidence/package/"
+cp -R reports/git_package "$evidence/project/reports/"
 cp dre_project.yml "$evidence/project/"
 revision=none
 (
   cd "$evidence/package" || exit 1
   export GIT_CEILING_DIRECTORIES="$PWD"
-  # The copy carries this worktree's `.git` file, which points back here: replace it with its own
-  # repository. The ceiling keeps Git from finding any repository above it.
-  rm -rf .git
   git init --quiet . || exit 1
   git add --all &&
   GIT_AUTHOR_DATE=2026-01-01T00:00:00Z GIT_COMMITTER_DATE=2026-01-01T00:00:00Z \
@@ -158,21 +157,28 @@ revision=none
 printf 'plugins: [duckdb, csv]\npackages:\n  - git: %s/package\n    revision: %s\n' \
   "$evidence" "$revision" > "$evidence/project/dependencies.yml"
 if (cd "$evidence/project" && "$dre" deps >/dev/null 2>&1); then
-  # The report as declared stops at its first failing check: exit 1 means it installed, resolved
-  # its checks and found the bad data. Anything else, such as an undefined check, was not tested.
-  (cd "$evidence/project" && "$dre" test -s data_tests_report --profiles-dir "$profiles" \
+  (cd "$evidence/project" && "$dre" test -s git_package --profiles-dir "$profiles" \
      > "$evidence/log" 2>&1) && code=0 || code=$?
-  [[ $code == 1 ]] || {
-    echo "FAIL: the Git copy's data_tests_report exited $code, expected 1: its checks find bad data"
-    grep -v '^warning' "$evidence/log" | head -5 || true
-    status=1
-  }
-  echo "git package: dre test exited $code from commit $revision"
-  rm -rf "$evidence"
+  [[ $code == 1 ]] || { echo "FAIL: Git package exited $code, expected 1"; status=1; }
+  # Exit 1 also covers render/runtime errors: require the exact completed checks.
+  python3 - "$evidence/project/target/run/git_package/default" <<'PY_CHECK' || status=1
+import json, pathlib, sys
+binding = pathlib.Path(sys.argv[1])
+try:
+    result = json.loads((binding / "runs" / (binding / "current").read_text().strip() / "run_results.json").read_text())
+    got = [(t["query"], t["test"], t["execution"], t["status"], t.get("failures")) for t in result["tests"]]
+    want = [("clean_ids", "dre_utils.not_null", "local", "pass", 0),
+            ("clean_ids", "dre_utils.not_empty", "source", "fail", 1)]
+    if got != want:
+        raise ValueError(f"got {got!r}, expected {want!r}")
+except (OSError, KeyError, ValueError) as error:
+    print(f"FAIL: Git package checks: {error}")
+    sys.exit(1)
+print("git package: local not_null passed (0), source not_empty failed (1)")
+PY_CHECK
 else
   echo "FAIL: dre deps does not install this checkout from Git"
   status=1
-  rm -rf "$evidence"
 fi
 [[ $status == 0 ]] && echo "All integration tests passed."
 exit $status
