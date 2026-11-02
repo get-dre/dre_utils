@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the integration tests against `dre` on the PATH (or $DRE): the reports tagged `ok` must
-# produce exactly the files in expected/, and each report tagged `error` must fail with the
-# message listed in errors.txt.
+# produce exactly the files in expected/ (the Binding's `current` names the run folder they are
+# in), and each report tagged `error` must fail with the message listed in errors.txt. The
+# reports declaring this package's data tests then run with `dre test`.
 set -euo pipefail
 cd "$(dirname "$0")"
 dre="${DRE:-dre}"
@@ -17,7 +18,8 @@ for f in expected/*.csv; do
   name="$(basename "$f")"
   report="${name%%__*}"
   tab="${name#*__}"
-  got="target/run/$report/default/$tab"
+  run="$(cat "target/run/$report/default/current")"
+  got="target/run/$report/default/runs/$run/$tab"
   if ! diff -u "$f" "$got"; then
     echo "FAIL: $got differs from $f"
     status=1
@@ -34,5 +36,143 @@ while IFS=$'\t' read -r report message; do
     status=1
   fi
 done < errors.txt
+# The package's data tests. Each check's status and failure-row count, where zero rows is a pass,
+# is in its query's run: a data failure stops its Binding, so the report as declared runs its
+# first query with checks. The checks later in the report get runs of their own, over the report
+# cut after their query.
+checks="$(mktemp)"
+runs="target/run/data_tests_report/default/runs"
+collect() {
+  python3 - "$1" >> "$checks" <<'PY'
+import glob, json, sys
+# Every check a run records: its query, name, status and the number of failure rows it returned.
+for path in glob.glob(f"{sys.argv[1]}/*/run_results.json"):
+    for check in json.load(open(path)).get("tests", []):
+        print(check["query"], check["test"].removeprefix("dre_utils."), check["status"], check["failures"])
+PY
+}
+"$dre" test -s data_tests_report --profiles-dir "$profiles" >/dev/null 2>&1 && code=0 || code=$?
+[[ $code == 1 ]] || { echo "FAIL: data_tests_report exited $code, expected 1: it finds bad data"; status=1; }
+collect "$runs"
+# The report cut after one query: the earlier queries without checks (the seed and the expected
+# results its checks read) and that query with its checks. The later queries go, as a failure
+# would have stopped the report before them.
+yaml=reports/data_tests_report/data_tests.yml
+cp "$yaml" "$checks.original"
+for check in "duplicate_keys fail" "no_rows fail" "negative_amount fail" "totals_pass pass" \
+             "totals_within_tolerance pass" "totals_off fail" "totals_other_column pass" \
+             "source_checks fail"; do
+  read -r query want <<<"$check"
+  python3 - "$checks.original" "$query" > "$yaml.cut" <<'PY'
+import sys
+path, last = sys.argv[1], sys.argv[2]
+head = open(path).read().split("tags: [data_tests]")[0]
+blocks = [[]]
+for line in head.splitlines():
+    if line.startswith(("  - query: ", "  - {query: ")):
+        blocks.append([])
+    blocks[-1].append(line)
+names = [block[0].split("query:")[1].strip(" {,}") for block in blocks[1:]]
+out = ["queries:"]
+for name, block in zip(names, blocks[1:]):
+    if name == last:
+        out.extend(block)
+    elif names.index(name) < names.index(last) and not any(l.startswith("      - ") for l in block):
+        out.extend(block)
+print("\n".join(out))
+print("tags: [data_tests]")
+PY
+  cp "$yaml.cut" "$yaml"
+  "$dre" test -s data_tests_report --profiles-dir "$profiles" >/dev/null 2>&1 && code=0 || code=$?
+  cp "$checks.original" "$yaml"
+  if { [[ "$want" == pass && $code != 0 ]] || [[ "$want" != pass && $code != 1 ]]; }; then
+    echo "FAIL: $query: its checks exited $code, but should $want"
+    status=1
+  fi
+  collect "$runs"
+  rm -rf "$runs"
+done
+rm -f "$checks.original" "$yaml.cut"
+# What each check must do: its query, its name, and the number of failure rows it returns (zero is
+# a pass). Each is seen once, in the report's run or in a run of its own; a check this report runs
+# that isn't listed fails too, as a check the report stops running stops finding problems.
+python3 - "$checks" <<'PY' || status=1
+import sys
+want = {
+    ("clean_ids", "not_null"): 0,
+    ("duplicate_keys", "unique"): 1,
+    ("no_rows", "not_empty"): 1,
+    ("negative_amount", "non_negative"): 1,
+    ("totals_pass", "totals_match"): 0,
+    ("totals_within_tolerance", "totals_match"): 0,
+    ("totals_off", "totals_match"): 1,
+    ("totals_other_column", "totals_match"): 0,
+    ("source_checks", "not_null"): 0,
+    ("source_checks", "unique"): 0,
+    ("source_checks", "non_negative"): 1,
+    ("source_checks", "totals_match"): 1,
+    ("source_checks", "not_empty"): 1,
+}
+seen = {}
+for line in sorted(set(open(sys.argv[1]))):
+    query, name, status, failures = line.split()
+    seen.setdefault((query, name), []).append((status, int(failures)))
+bad = []
+for key in list(want) + [k for k in seen if k not in want]:
+    rows = seen.get(key, [])
+    ok = key in want and len(rows) == 1 and rows[0][1] == want[key] and rows[0][0] == ("pass" if want[key] == 0 else "fail")
+    if not ok:
+        bad.append(f"{key}: {rows}, expected {want.get(key)} failure rows")
+for line in bad:
+    print(f"FAIL: {line}")
+print(f"data tests: {len(want)} checks, {len(bad)} unexpected")
+sys.exit(1 if bad else 0)
+PY
+# The package installed the way `dre deps` installs one from Git: a copy of this checkout, in a
+# local Git repository outside this one, with a project that declares it. So the install needs no
+# network, and its checks must still resolve through the package's namespace: `dre test` runs them
+# and finds the bad data.
+evidence="$(mktemp -d)"
+mkdir -p "$evidence/package"
+tar -C .. -cf - --exclude=integration_tests/target --exclude=integration_tests/dre_deps \
+    --exclude=integration_tests/dre.lock --exclude=integration_tests/logs . |
+  tar -C "$evidence/package" -xf -
+rm -rf "$evidence/package/integration_tests/target" "$evidence/package/integration_tests/dre_deps" \
+       "$evidence/package/integration_tests/dre.lock" "$evidence/package/integration_tests/logs"
+mkdir -p "$evidence/project/reports"
+cp -R reports/data_tests_report "$evidence/project/reports/"
+cp dre_project.yml "$evidence/project/"
+revision=none
+(
+  cd "$evidence/package" || exit 1
+  export GIT_CEILING_DIRECTORIES="$PWD"
+  # The copy carries this worktree's `.git` file, which points back here: replace it with its own
+  # repository. The ceiling keeps Git from finding any repository above it.
+  rm -rf .git
+  git init --quiet . || exit 1
+  git add --all &&
+  GIT_AUTHOR_DATE=2026-01-01T00:00:00Z GIT_COMMITTER_DATE=2026-01-01T00:00:00Z \
+    git -c user.name=dre -c user.email=dre@example.invalid commit \
+      --quiet -m "the package under test"
+) && revision="$(git -C "$evidence/package" rev-parse HEAD)"
+printf 'plugins: [duckdb, csv]\npackages:\n  - git: %s/package\n    revision: %s\n' \
+  "$evidence" "$revision" > "$evidence/project/dependencies.yml"
+if (cd "$evidence/project" && "$dre" deps >/dev/null 2>&1); then
+  # The report as declared stops at its first failing check: exit 1 means it installed, resolved
+  # its checks and found the bad data. Anything else, such as an undefined check, was not tested.
+  (cd "$evidence/project" && "$dre" test -s data_tests_report --profiles-dir "$profiles" \
+     > "$evidence/log" 2>&1) && code=0 || code=$?
+  [[ $code == 1 ]] || {
+    echo "FAIL: the Git copy's data_tests_report exited $code, expected 1: its checks find bad data"
+    grep -v '^warning' "$evidence/log" | head -5 || true
+    status=1
+  }
+  echo "git package: dre test exited $code from commit $revision"
+  rm -rf "$evidence"
+else
+  echo "FAIL: dre deps does not install this checkout from Git"
+  status=1
+  rm -rf "$evidence"
+fi
 [[ $status == 0 ]] && echo "All integration tests passed."
 exit $status

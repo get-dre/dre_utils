@@ -10,12 +10,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # The newest DRE release (pre-releases included), and the plugins the tests declare.
-      - name: Install DRE
-        run: |
-          curl -fsSL https://getdre.com/install.sh | DRE_INSTALL_DIR="$HOME/.local/bin" sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # TEMPORARY: DRE from the reviewed commit that supports data tests, as no release has the
+      # support yet, and its build needs a recent stable Rust.
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: get-dre/dre
+          ref: 739d9c57eeeff1e8c7058a12226e176ce962a291
+          path: dre
+          persist-credentials: false
+      # Switch to a core release before this package is released: an older DRE could silently skip
+      # the data tests the integration reports declare.
+      - run: cargo build -p dre-cli
+        working-directory: dre
       - name: Install plugins
         working-directory: integration_tests
-        run: dre deps
+        env:
+          DRE: ${{ github.workspace }}/dre/target/debug/dre
+        run: '"$DRE" deps'
       - run: integration_tests/run.sh
+        env:
+          DRE: ${{ github.workspace }}/dre/target/debug/dre
