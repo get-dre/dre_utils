@@ -1,0 +1,11 @@
+# The package as `dre deps` installs it from Git: this checkout copied into a local Git repository
+# by run.sh, with a project that declares it. The checks must resolve through the package too.
+queries:
+  - {query: seed_git_package, tab: false}
+  - query: clean_ids
+    data_tests:
+      - dre_utils.not_null: {arguments: {column_name: account_id}}
+      - dre_utils.not_empty:
+          arguments: {relation: accounts_copy}
+          config: {execution: source}
+tags: [git_package]

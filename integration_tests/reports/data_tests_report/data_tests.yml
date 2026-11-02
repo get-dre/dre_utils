@@ -1,0 +1,60 @@
+queries:
+  - {query: seed_data_tests, tab: false}
+  - {query: expected_totals, tab: false}
+  - {query: expected_off_by_cents, tab: false}
+  - {query: expected_missing_region, tab: false}
+  - {query: expected_with_sales, tab: false}
+  - query: clean_ids
+    data_tests:
+      - dre_utils.not_null: {arguments: {column_name: account_id}}
+  - query: duplicate_keys
+    tab: false
+    data_tests:
+      - dre_utils.unique: {arguments: {column_name: account_id}}
+  - query: no_rows
+    tab: false
+    data_tests:
+      - dre_utils.not_empty: {}
+  - query: negative_amount
+    tab: false
+    data_tests:
+      - dre_utils.non_negative: {arguments: {column_name: amount}}
+  - query: totals_pass
+    data_tests:
+      - dre_utils.totals_match:
+          query_results: {expected: expected_totals}
+          arguments: {column_name: total}
+  - query: totals_within_tolerance
+    data_tests:
+      - dre_utils.totals_match:
+          query_results: {expected: expected_off_by_cents}
+          arguments: {column_name: total, tolerance: 0.05}
+  - query: totals_off
+    data_tests:
+      - dre_utils.totals_match:
+          query_results: {expected: expected_missing_region}
+          arguments: {column_name: total}
+  - query: totals_other_column
+    data_tests:
+      - dre_utils.totals_match:
+          query_results: {expected: expected_with_sales}
+          arguments: {column_name: total, expected_column: sales}
+  - query: source_checks
+    tab: false
+    data_tests:
+      - dre_utils.not_null:
+          arguments: {relation: regions_copy, column_name: region}
+          config: {execution: source}
+      - dre_utils.unique:
+          arguments: {relation: regions_copy, column_name: account_id}
+          config: {execution: source}
+      - dre_utils.non_negative:
+          arguments: {relation: amounts_copy, column_name: amount}
+          config: {execution: source}
+      - dre_utils.totals_match:
+          arguments: {relation: account_totals, expected: sales_totals, column_name: amount, expected_column: total}
+          config: {execution: source}
+      - dre_utils.not_empty:
+          arguments: {relation: empty_view}
+          config: {execution: source}
+tags: [data_tests]

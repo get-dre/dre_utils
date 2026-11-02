@@ -1,7 +1,8 @@
 # dre_utils
 
 Reusable macros for [DRE](https://github.com/get-dre/dre) reports: select all but a few columns,
-and pivot values into columns, in SQL that works on any database DRE reads from.
+pivot values into columns, and run standard data tests, in SQL that works on any database DRE
+reads from.
 
 Dates and periods (`run.date.prev_month`, `period('mtd')`, timezones) are built into DRE itself;
 see [DRE's template docs](https://github.com/get-dre/dre/blob/master/docs/templates.md).
@@ -16,7 +17,12 @@ packages:
     revision: v0.1.0    # a tag, branch or commit
 ```
 
-Call its macros through the package's name: `{{ dre_utils.star(...) }}`.
+Call its macros through the package's name: `{{ dre_utils.star(...) }}`, and declare its data
+tests the same way, e.g. `dre_utils.not_null`.
+
+The data tests need DRE with data-test support, which no release has yet: install DRE from a
+commit of the `dre` repository (see [Building from source](https://github.com/get-dre/dre/blob/master/docs/building-from-source.md))
+until a release includes it.
 
 ## `star`
 
@@ -74,6 +80,67 @@ where region in ({{ dre_utils.column_values('sales', 'region', where='active') }
 The distinct values of a column as SQL literals, with the same `where`, `order_by`, `max` and
 `quote_values` as `pivot`.
 
+## Data tests
+
+DRE runs a query's `data_tests` after it: each check returns failure rows, and zero rows is a
+pass, so a count is the number of failing groups or rows the check found, not necessarily the
+number of bad rows in the source. A check's `config` says where it runs, `local` (the default) against the
+saved result or `source` against a relation in the query's session, and its severity. Column names
+are quoted with `quote_identifier` for the report's database, so a check works on any database DRE
+reads from.
+
+```yaml
+queries:
+  - {query: seed_accounts, tab: false}
+  - query: accounts
+    data_tests:
+      - dre_utils.not_null: {arguments: {column_name: account_id}}
+      - dre_utils.unique: {arguments: {column_name: account_id}}
+      - dre_utils.not_empty: {}
+      - dre_utils.non_negative: {arguments: {column_name: amount}}
+      - dre_utils.totals_match:
+          query_results: {expected: expected_totals}
+          arguments: {column_name: total, tolerance: 0.01}
+```
+
+`local` checks read the query's saved result, as `relation`; `source` checks need their relation
+given as `arguments.relation`, the name of a table or view the query's session can see.
+
+### `not_null`
+
+`not_null(relation, column_name)`: a failure row per row of `relation` whose `column_name` is null.
+
+### `unique`
+
+`unique(relation, column_name)`: a failure row per value of `column_name` that appears more than
+once in `relation`, with its `count(*) as duplicate_count`: one row per duplicated value, however
+many rows it has.
+
+### `not_empty`
+
+`not_empty(relation)`: one failure row, `missing_data = 1`, when `relation` has no rows.
+
+### `non_negative`
+
+`non_negative(relation, column_name)`: a failure row per row of `relation` whose `column_name` is
+below zero.
+
+### `totals_match`
+
+```yaml
+- dre_utils.totals_match:
+    query_results: {expected: expected_totals}
+    arguments: {column_name: total, expected_column: amount, tolerance: 0.01}
+```
+
+`totals_match(relation, expected, column_name, expected_column=none, tolerance=0)` reconciles a
+summary against its details: the sum of `column_name` over `relation` against the sum of
+`expected_column` over `expected`, by default the same column name. `expected` is a relation too: a
+local check's earlier query result, given as `query_results`, or a source check's relation. One
+failure row, with `actual_total`, `expected_total` and `difference`, only when the two differ by
+more than `tolerance`, an absolute amount in the column's own type. Both sums are 0 with no rows,
+so two empty relations match: use `not_empty` when empty data must fail.
+
 ## `string_literal`
 
 `dre_utils.string_literal("O'Brien")` gives `'O''Brien'`, or `'O\'Brien'` on Databricks, which
@@ -91,8 +158,11 @@ Databricks. It picks the variant for the report's database through `dispatch()`:
 
 `integration_tests/` is a DRE project that uses this package from `..`. `integration_tests/run.sh`
 runs its reports against an in-memory DuckDB and checks each output against `expected/`, and each
-error case against `errors.txt`. It needs `dre` on the `PATH` (or `DRE=...`) and the DuckDB and
-csv plugins (`dre deps` in `integration_tests/` installs them).
+error case against `errors.txt`; it then runs the data tests with `dre test`, checks each one's
+failure count, and installs the package macros from a temporary local Git repository. A separate
+report checks a local `not_null` pass and a source `not_empty` failure from that installation.
+It needs `dre` on the `PATH` (or `DRE=...`) and the DuckDB and csv plugins (`dre deps`
+in `integration_tests/` installs them). The Git copy goes in a temporary folder, removed after it.
 
 ## Contributing
 
