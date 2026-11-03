@@ -52,10 +52,10 @@ runs="target/run/data_tests_report/default/runs"
 collect() {
   python3 - "$1" >> "$checks" <<'PY'
 import glob, json, sys
-# Every check a run records: its query, name, status and the number of failure rows it returned.
+# Keep the complete published result contract, including skips without failure counts.
 for path in glob.glob(f"{sys.argv[1]}/*/run_results.json"):
     for check in json.load(open(path)).get("tests", []):
-        print(check["query"], check["test"].removeprefix("dre_utils."), check["status"], check["failures"])
+        print(json.dumps(check, sort_keys=True))
 PY
 }
 "$dre" test -s data_tests_report --profiles-dir "$profiles" >/dev/null 2>&1 && code=0 || code=$?
@@ -99,36 +99,66 @@ PY
   rm -rf "$runs"
 done
 rm -f "$yaml.cut"
-# What each check must do: its query, its name, and the number of failure rows it returns (zero is
-# a pass). Each is seen once, in the report's run or in a run of its own; a check this report runs
-# that isn't listed fails too, as a check the report stops running stops finding problems.
+# What each check must do: its query, its name, its execution, and its failure-row count (zero
+# passes). The full-report run also records checks skipped after an earlier error; assert those
+# states too. An unlisted check fails, as does an expected check that never runs.
 python3 - "$checks" <<'PY' || status=1
-import sys
+import json, sys
 want = {
-    ("clean_ids", "not_null"): 0,
-    ("duplicate_keys", "unique"): 1,
-    ("no_rows", "not_empty"): 1,
-    ("negative_amount", "non_negative"): 1,
-    ("totals_pass", "totals_match"): 0,
-    ("totals_within_tolerance", "totals_match"): 0,
-    ("totals_off", "totals_match"): 1,
-    ("totals_other_column", "totals_match"): 0,
-    ("source_checks", "not_null"): 0,
-    ("source_checks", "unique"): 0,
-    ("source_checks", "non_negative"): 1,
-    ("source_checks", "totals_match"): 1,
-    ("source_checks", "not_empty"): 1,
+    ("clean_ids", "not_null"): (0, "local", 1),
+    ("duplicate_keys", "unique"): (1, "local", 1),
+    ("no_rows", "not_empty"): (1, "local", 1),
+    ("negative_amount", "non_negative"): (1, "local", 1),
+    ("totals_pass", "totals_match"): (0, "local", 1),
+    ("totals_within_tolerance", "totals_match"): (0, "local", 1),
+    ("totals_off", "totals_match"): (1, "local", 1),
+    ("totals_other_column", "totals_match"): (0, "local", 1),
+    ("source_checks", "not_null"): (0, "source", 1),
+    ("source_checks", "unique"): (0, "source", 2),
+    ("source_checks", "non_negative"): (1, "source", 3),
+    ("source_checks", "totals_match"): (1, "source", 4),
+    ("source_checks", "not_empty"): (1, "source", 5),
 }
 seen = {}
-for line in sorted(set(open(sys.argv[1]))):
-    query, name, status, failures = line.split()
-    seen.setdefault((query, name), []).append((status, int(failures)))
+for line in sorted(open(sys.argv[1])):
+    check = json.loads(line)
+    query, name = check["query"], check["test"].removeprefix("dre_utils.")
+    key = (query, name)
+    if not isinstance(check.get("query_ordinal"), int) or check["query_ordinal"] < 1:
+        raise ValueError(f"{key}: invalid query_ordinal in {check}")
+    record = {field: value for field, value in check.items() if field != "duration_ms"}
+    seen.setdefault(key, {})[json.dumps(record, sort_keys=True)] = check
 bad = []
 for key in list(want) + [k for k in seen if k not in want]:
-    rows = seen.get(key, [])
-    ok = key in want and len(rows) == 1 and rows[0][1] == want[key] and rows[0][0] == ("pass" if want[key] == 0 else "fail")
+    rows = list(seen.get(key, {}).values())
+    executed = [row for row in rows if row.get("status") in ("pass", "fail")]
+    skipped = [row for row in rows if row.get("status") == "skipped"]
+    failures, execution, ordinal = want.get(key, (None, None, None))
+    expected_executions = 2 if key == ("duplicate_keys", "unique") else 1
+    expected_skips = (
+        1 if list(want).index(key) > list(want).index(("duplicate_keys", "unique")) else 0
+    ) if key in want else -1
+    ok = (
+        key in want
+        and len(executed) == expected_executions
+        and all(row.get("status") == ("pass" if failures == 0 else "fail") for row in executed)
+        and all(row.get("failures") == failures for row in executed)
+        and all(row.get("severity") == "error" for row in executed)
+        and all(row.get("execution") == execution for row in executed)
+        and all(row.get("ordinal") == ordinal for row in executed)
+        and len(skipped) == expected_skips
+        and all(
+            row.get("skip_reason") == "data-test-failed"
+            and "failures" not in row
+            and row.get("severity") == "error"
+            and row.get("execution") == execution
+            and row.get("ordinal") == ordinal
+            for row in skipped
+        )
+        and len(rows) == len(executed) + len(skipped)
+    )
     if not ok:
-        bad.append(f"{key}: {rows}, expected {want.get(key)} failure rows")
+        bad.append(f"{key}: {rows}, expected {want.get(key)} and its published status fields")
 for line in bad:
     print(f"FAIL: {line}")
 print(f"data tests: {len(want)} checks, {len(bad)} unexpected")
@@ -166,11 +196,13 @@ import json, pathlib, sys
 binding = pathlib.Path(sys.argv[1])
 try:
     result = json.loads((binding / "runs" / (binding / "current").read_text().strip() / "run_results.json").read_text())
-    got = [(t["query"], t["test"], t["execution"], t["status"], t.get("failures")) for t in result["tests"]]
-    want = [("clean_ids", "dre_utils.not_null", "local", "pass", 0),
-            ("clean_ids", "dre_utils.not_empty", "source", "fail", 1)]
+    got = [(t["query"], t["test"], t["execution"], t["severity"], t["ordinal"], t["status"], t.get("failures")) for t in result["tests"]]
+    want = [("clean_ids", "dre_utils.not_null", "local", "error", 1, "pass", 0),
+            ("clean_ids", "dre_utils.not_empty", "source", "error", 2, "fail", 1)]
     if got != want:
         raise ValueError(f"got {got!r}, expected {want!r}")
+    if any(not isinstance(t["query_ordinal"], int) or t["query_ordinal"] < 1 for t in result["tests"]):
+        raise ValueError(f"invalid query_ordinal in {result['tests']!r}")
 except (OSError, KeyError, ValueError) as error:
     print(f"FAIL: Git package checks: {error}")
     sys.exit(1)
