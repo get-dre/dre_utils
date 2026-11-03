@@ -14,15 +14,14 @@ Add the package to your project's `packages.yml` (or `dependencies.yml`) and run
 ```yaml
 packages:
   - git: https://github.com/get-dre/dre_utils.git
-    revision: v0.1.0    # a tag, branch or commit
+    revision: v0.2.0    # a tag, branch or commit
 ```
 
 Call its macros through the package's name: `{{ dre_utils.star(...) }}`, and declare its data
 tests the same way, e.g. `dre_utils.not_null`.
 
-The data tests need DRE with data-test support, which no release has yet: install DRE from a
-commit of the `dre` repository (see [Building from source](https://github.com/get-dre/dre/blob/master/docs/building-from-source.md))
-until a release includes it.
+The ordinary macros work with earlier DRE releases. The data tests require DRE 0.11.0 or later;
+they are tested with DRE 0.11.0.
 
 ## `star`
 
