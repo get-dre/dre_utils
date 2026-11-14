@@ -144,7 +144,8 @@ so two empty relations match: use `not_empty` when empty data must fail.
 ## Slack components
 
 Ready-made [Block Kit](https://api.slack.com/block-kit) components for the Slack destination's
-`blocks:` list, in `components/slack/`. Name one by its path in the package and pass its
+`blocks:` list, in `components/slack/`. Name one as `dre_utils/<file>.json` (DRE finds the file
+by name in the package; `dre_utils/components/slack/<file>.json` works too) and pass its
 arguments in `with:`; each reads the query it names through `results`:
 
 ```yaml
@@ -152,12 +153,12 @@ destination:
   - profile: team_slack
     channel: "#finance"
     blocks:
-      - component: dre_utils/components/slack/header.json
+      - component: dre_utils/header.json
         with: {text: "Daily KPIs {{ run.date.iso }}"}
-      - component: dre_utils/components/slack/line_chart.json
+      - component: dre_utils/line_chart.json
         keep: last
         with: {query: revenue_by_day, label: day, values: [revenue], title: Revenue}
-      - component: dre_utils/components/slack/fields.json
+      - component: dre_utils/fields.json
         with: {query: totals}
 ```
 
@@ -171,7 +172,8 @@ destination:
 Slack's limits (20 points, 12 series, 20-character labels, 2 charts a message) are applied by
 the slack plugin, which trims and warns instead of failing; see
 [its docs](https://github.com/get-dre/dre/blob/master/docs/plugin-slack.md).
-`dre run --preview` prints the rendered blocks, ready for Block Kit Builder.
+`dre run --preview` prints the rendered blocks, ready for Block Kit Builder: as they are
+before the plugin's limit fixes, whose warnings show in a real run.
 
 To change one, copy it into your project, for example to `components/slack/bar_chart.json`, and
 name it by its project path: a project's own component wins over a package's. They are plain

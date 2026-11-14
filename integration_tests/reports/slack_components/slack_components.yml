@@ -12,7 +12,7 @@ output:
     destination:
       - profile: team_slack
         blocks:
-          - component: dre_utils/components/slack/header.json
+          - component: dre_utils/header.json
             with: {text: "Daily KPIs {{ run.date.iso }}"}
   - name: fields
     format: message
@@ -41,7 +41,7 @@ output:
     destination:
       - profile: team_slack
         blocks:
-          - component: dre_utils/components/slack/line_chart.json
+          - component: dre_utils/line_chart.json
             with: {query: daily, label: day, value: revenue, title: Revenue}
   - name: area
     format: message
