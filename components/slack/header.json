@@ -1,0 +1,2 @@
+{#- Header block. with: text. -#}
+{"type": "header", "text": {"type": "plain_text", "text": {{ args.text | tojson }}}}

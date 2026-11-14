@@ -1,0 +1,37 @@
+{
+  "blocks": [
+    {
+      "type": "data_visualization",
+      "title": "Revenue",
+      "chart": {
+        "type": "line",
+        "series": [
+          {
+            "name": "revenue",
+            "data": [
+              {
+                "label": "2026-03-16",
+                "value": 17.5
+              },
+              {
+                "label": "2026-03-17",
+                "value": 12.0
+              },
+              {
+                "label": "2026-03-18",
+                "value": 17.75
+              }
+            ]
+          }
+        ],
+        "axis_config": {
+          "categories": [
+            "2026-03-16",
+            "2026-03-17",
+            "2026-03-18"
+          ]
+        }
+      }
+    }
+  ]
+}

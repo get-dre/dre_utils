@@ -1,0 +1,63 @@
+queries:
+  - {query: seed_sales, tab: false}
+  - daily
+  - by_region
+  - shares
+tags: [slack]
+output:
+  - name: header
+    format: message
+    queries: [daily]
+    text: Header
+    destination:
+      - profile: team_slack
+        blocks:
+          - component: dre_utils/header.json
+            with: {text: "Daily KPIs {{ run.date.iso }}"}
+  - name: fields
+    format: message
+    queries: [shares]
+    text: Fields
+    destination:
+      - profile: team_slack
+        blocks:
+          - component: dre_utils/components/slack/fields.json
+            with: {query: shares}
+          - component: dre_utils/components/slack/fields.json
+            with: {query: shares, label: total, value: Region}
+  - name: bar
+    format: message
+    queries: [daily]
+    text: Bar
+    destination:
+      - profile: team_slack
+        blocks:
+          - component: dre_utils/components/slack/bar_chart.json
+            with: {query: daily, label: day, values: [revenue, orders], title: Revenue and orders, x_label: Day, y_label: EUR}
+  - name: line
+    format: message
+    queries: [daily]
+    text: Line
+    destination:
+      - profile: team_slack
+        blocks:
+          - component: dre_utils/line_chart.json
+            with: {query: daily, label: day, value: revenue, title: Revenue}
+  - name: area
+    format: message
+    queries: [by_region]
+    text: Area
+    destination:
+      - profile: team_slack
+        blocks:
+          - component: dre_utils/components/slack/area_chart.json
+            with: {query: by_region, label: day, value: revenue, series: region, title: Revenue by region}
+  - name: pie
+    format: message
+    queries: [shares]
+    text: Pie
+    destination:
+      - profile: team_slack
+        blocks:
+          - component: dre_utils/components/slack/pie_chart.json
+            with: {query: shares, label: Region, value: total, title: Share by region}

@@ -1,0 +1,13 @@
+{#- Pie chart. with: query, label, value, title. -#}
+{
+  "type": "data_visualization",
+  "title": {{ (args.title | default('')) | tojson }},
+  "chart": {
+    "type": "pie",
+    "segments": [
+      {%- for r in results[args.query].rows %}
+      {"label": {{ r[args.label] | string | tojson }}, "value": {{ r[args.value] | tojson }}}{{ "," if not loop.last }}
+      {%- endfor %}
+    ]
+  }
+}

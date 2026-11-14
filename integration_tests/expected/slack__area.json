@@ -1,0 +1,50 @@
+{
+  "blocks": [
+    {
+      "type": "data_visualization",
+      "title": "Revenue by region",
+      "chart": {
+        "type": "area",
+        "series": [
+          {
+            "name": "apac",
+            "data": [
+              {
+                "label": "2026-03-16",
+                "value": 10.5
+              },
+              {
+                "label": "2026-03-17",
+                "value": 12.0
+              },
+              {
+                "label": "2026-03-18",
+                "value": 9.5
+              }
+            ]
+          },
+          {
+            "name": "emea",
+            "data": [
+              {
+                "label": "2026-03-16",
+                "value": 7.0
+              },
+              {
+                "label": "2026-03-18",
+                "value": 8.25
+              }
+            ]
+          }
+        ],
+        "axis_config": {
+          "categories": [
+            "2026-03-16",
+            "2026-03-17",
+            "2026-03-18"
+          ]
+        }
+      }
+    }
+  ]
+}

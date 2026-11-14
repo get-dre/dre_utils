@@ -21,7 +21,8 @@ Call its macros through the package's name: `{{ dre_utils.star(...) }}`, and dec
 tests the same way, e.g. `dre_utils.not_null`.
 
 The ordinary macros work with earlier DRE releases. The data tests require DRE 0.11.0 or later;
-they are tested with DRE 0.11.0.
+the tests run on DRE 0.13.0. The [Slack components](#slack-components) need DRE 0.13.0 and the
+`slack` plugin 1.4.0 or later.
 
 ## `star`
 
@@ -140,6 +141,44 @@ failure row, with `actual_total`, `expected_total` and `difference`, only when t
 more than `tolerance`, an absolute amount in the column's own type. Both sums are 0 with no rows,
 so two empty relations match: use `not_empty` when empty data must fail.
 
+## Slack components
+
+Ready-made [Block Kit](https://api.slack.com/block-kit) components for the Slack destination's
+`blocks:` list, in `components/slack/`. Name one as `dre_utils/<file>.json` (DRE finds the file
+by name in the package; `dre_utils/components/slack/<file>.json` works too) and pass its
+arguments in `with:`; each reads the query it names through `results`:
+
+```yaml
+destination:
+  - profile: team_slack
+    channel: "#finance"
+    blocks:
+      - component: dre_utils/header.json
+        with: {text: "Daily KPIs {{ run.date.iso }}"}
+      - component: dre_utils/line_chart.json
+        keep: last
+        with: {query: revenue_by_day, label: day, values: [revenue], title: Revenue}
+      - component: dre_utils/fields.json
+        with: {query: totals}
+```
+
+| Component | Arguments |
+|---|---|
+| `bar_chart.json`, `line_chart.json`, `area_chart.json` | `query`, `label` (the category column), `value` (a column) or `values` (a list of columns, one series each); optional `series` (a column whose values name the series: long rows pivot into one series per value, categories in first-seen order, using `value`), `title`, `x_label`, `y_label` |
+| `pie_chart.json` | `query`, `label`, `value`, `title` |
+| `header.json` | `text` |
+| `fields.json` | `query`; optional `label` and `value` columns (default: the first two). One `*name*\nvalue` field per row |
+
+Slack's limits (20 points, 12 series, 20-character labels, 2 charts a message) are applied by
+the slack plugin, which trims and warns instead of failing; see
+[its docs](https://github.com/get-dre/dre/blob/master/docs/plugin-slack.md).
+`dre run --preview` prints the rendered blocks, ready for Block Kit Builder: as they are
+before the plugin's limit fixes, whose warnings show in a real run.
+
+To change one, copy it into your project, for example to `components/slack/bar_chart.json`, and
+name it by its project path: a project's own component wins over a package's. They are plain
+JSON with Jinja; print values with `| tojson`.
+
 ## `string_literal`
 
 `dre_utils.string_literal("O'Brien")` gives `'O''Brien'`, or `'O\'Brien'` on Databricks, which
@@ -157,10 +196,11 @@ Databricks. It picks the variant for the report's database through `dispatch()`:
 
 `integration_tests/` is a DRE project that uses this package from `..`. `integration_tests/run.sh`
 runs its reports against an in-memory DuckDB and checks each output against `expected/`, and each
-error case against `errors.txt`; it then runs the data tests with `dre test`, checks each one's
+error case against `errors.txt`; it previews each Slack component from fixture data and compares
+the blocks with `expected/slack__*.json`; it then runs the data tests with `dre test`, checks each one's
 failure count, and installs the package macros from a temporary local Git repository. A separate
 report checks a local `not_null` pass and a source `not_empty` failure from that installation.
-It needs `dre` on the `PATH` (or `DRE=...`) and the DuckDB and csv plugins (`dre deps`
+It needs `dre` on the `PATH` (or `DRE=...`) and the DuckDB, csv and slack plugins (`dre deps`
 in `integration_tests/` installs them). The Git copy goes in a temporary folder, removed after it.
 
 ## Contributing

@@ -1,0 +1,30 @@
+{
+  "blocks": [
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*apac*\n32.0"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*emea*\n15.25"
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*32.0*\napac"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*15.25*\nemea"
+        }
+      ]
+    }
+  ]
+}

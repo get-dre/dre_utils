@@ -41,12 +41,14 @@ This adds a `Signed-off-by: Your Name <you@example.com>` line to the commit mess
 
 ```sh
 cd integration_tests
-dre deps        # installs the DuckDB and csv plugins
+dre deps        # installs the DuckDB, csv and slack plugins
 ./run.sh
 ```
 
 `run.sh` runs every report against an in-memory DuckDB and compares each output with
-`expected/`, and each error case with `errors.txt`.
+`expected/`, and each error case with `errors.txt`. The reports tagged `slack` are run with
+`--preview` against a Slack destination that never posts: the Block Kit JSON each component
+renders to must match `expected/slack__<output>.json`. Then it runs the package's data tests.
 
 ## Guidelines
 

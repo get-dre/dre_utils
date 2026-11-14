@@ -1,0 +1,21 @@
+{
+  "blocks": [
+    {
+      "type": "data_visualization",
+      "title": "Share by region",
+      "chart": {
+        "type": "pie",
+        "segments": [
+          {
+            "label": "apac",
+            "value": 32.0
+          },
+          {
+            "label": "emea",
+            "value": 15.25
+          }
+        ]
+      }
+    }
+  ]
+}

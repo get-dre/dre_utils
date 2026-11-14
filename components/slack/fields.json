@@ -1,0 +1,12 @@
+{#- One *name*\nvalue field per row. with: query, label and value (columns; default the first two). -#}
+{%- set q = results[args.query] -%}
+{%- set label = args.label | default(q.columns[0]) -%}
+{%- set value = args.value | default(q.columns[1]) -%}
+{
+  "type": "section",
+  "fields": [
+    {%- for r in q.rows %}
+    {"type": "mrkdwn", "text": {{ ("*" ~ r[label] ~ "*\n" ~ r[value]) | tojson }}}{{ "," if not loop.last }}
+    {%- endfor %}
+  ]
+}
