@@ -1,0 +1,39 @@
+{#- Line chart. with: query, label, value | values: [..], series (optional), title, x_label, y_label. -#}
+{%- set rows = results[args.query].rows -%}
+{%- set cols = args['values'] | default([args.value]) -%}
+{%- set series = args.series | default('') -%}
+{%- set x_label = args.x_label | default('') -%}
+{%- set y_label = args.y_label | default('') -%}
+{%- set cats = rows | map(attribute=args.label) | map('string') | unique | list -%}
+{
+  "type": "data_visualization",
+  "title": {{ (args.title | default('')) | tojson }},
+  "chart": {
+    "type": "line",
+    "series": [
+      {%- if series %}
+      {%- set names = rows | map(attribute=series) | map('string') | unique | list -%}
+      {%- for name in names %}
+      {"name": {{ name | tojson }}, "data": [
+        {%- for r in rows if (r[series] | string) == name %}
+        {"label": {{ r[args.label] | string | tojson }}, "value": {{ r[cols[0]] | tojson }}}{{ "," if not loop.last }}
+        {%- endfor %}
+      ]}{{ "," if not loop.last }}
+      {%- endfor %}
+      {%- else %}
+      {%- for col in cols %}
+      {"name": {{ col | tojson }}, "data": [
+        {%- for r in rows %}
+        {"label": {{ r[args.label] | string | tojson }}, "value": {{ r[col] | tojson }}}{{ "," if not loop.last }}
+        {%- endfor %}
+      ]}{{ "," if not loop.last }}
+      {%- endfor %}
+      {%- endif %}
+    ],
+    "axis_config": {
+      "categories": {{ cats | tojson }}
+      {%- if x_label %}, "x_label": {{ x_label | tojson }}{% endif %}
+      {%- if y_label %}, "y_label": {{ y_label | tojson }}{% endif %}
+    }
+  }
+}

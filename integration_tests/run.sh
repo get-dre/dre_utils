@@ -16,10 +16,36 @@ cleanup() {
   rm -rf "$profiles"
 }
 trap cleanup EXIT
-printf 'sources:\n  memory:\n    target: dev\n    targets:\n      dev: {type: duckdb, path: ":memory:"}\n' > "$profiles/profiles.yml"
+printf 'connections:\n  memory:\n    targets:\n      dev: {type: duckdb, path: ":memory:"}\n' > "$profiles/profiles.yml"
+# The Slack components preview against a Slack destination that never posts (--preview).
+printf 'destinations:\n  team_slack:\n    targets:\n      dev: {type: slack, token: xoxb-preview, channel: C0000000000}\n' >> "$profiles/profiles.yml"
 rm -rf target
 "$dre" run -s tag:ok --profiles-dir "$profiles"
 status=0
+# The Slack components: the Block Kit JSON each previews to, from the report's `Blocks output`
+# lines, must match expected/slack__<output>.json.
+"$dre" run -s tag:slack --preview --profiles-dir "$profiles" > "$profiles/slack.log" 2>&1 || {
+  cat "$profiles/slack.log"; echo "FAIL: the Slack components did not preview"; status=1; }
+python3 - "$profiles/slack.log" "$profiles/slack" <<'PY' || status=1
+import json, os, re, sys
+lines = open(sys.argv[1]).read().splitlines()
+os.makedirs(sys.argv[2])
+for i, line in enumerate(lines):
+    m = re.search(r"Blocks\s+output `(\w+)` to", line)
+    if m:
+        body = []
+        for l in lines[i + 1:]:
+            if not l.startswith(" " * 12):
+                break
+            body.append(l[12:])
+        out = json.loads("\n".join(body))
+        open(f"{sys.argv[2]}/slack__{m[1]}.json", "w").write(json.dumps(out, indent=2) + "\n")
+PY
+for f in expected/slack__*.json; do
+  diff -u "$f" "$profiles/slack/$(basename "$f")" || { echo "FAIL: $f differs"; status=1; }
+done
+[[ "$(ls expected/slack__*.json | wc -l)" == "$(ls "$profiles/slack" | wc -l)" ]] || {
+  echo "FAIL: the Slack components rendered $(ls "$profiles/slack" | wc -l) outputs, expected files differ"; status=1; }
 for f in expected/*.csv; do
   name="$(basename "$f")"
   report="${name%%__*}"
