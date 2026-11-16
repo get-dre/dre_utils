@@ -4,3 +4,9 @@ pivot_no_values	dre_utils.pivot: give the `values` to pivot on, or a `relation` 
 too_many	dre_utils.pivot: `id` has more than 3 distinct values in orders; narrow it with `where=`, or raise `max=` if you really want that many
 values_too_many	dre_utils.column_values: `month` has more than 1 distinct values in orders
 no_values	dre_utils.pivot: `region` has no values in orders, so there's nothing to pivot
+unpivot_typo	dre_utils.unpivot: `idd` in `exclude` isn't a column of orders; its columns are id, region, month, amount, Note, _etl_ts
+unpivot_nothing	dre_utils.unpivot: `exclude` leaves no columns of orders to unpivot
+period_change_kind	dre_utils.period_change: `kind` must be 'pct' or 'diff', not 'ratio'
+date_spine_part	dre_utils.date_spine: `datepart` must be day, week, month, quarter or year, not 'hour'
+group_by_zero	dre_utils.group_by: `n` must be a whole number of at least 1, not 0
+union_none	dre_utils.union_relations: give at least one relation

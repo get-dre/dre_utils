@@ -1,0 +1,5 @@
+queries:
+  - {query: seed_unpivot_nothing, tab: false}
+  - unpivot_nothing_q
+tags: [error]
+output: {format: csv}

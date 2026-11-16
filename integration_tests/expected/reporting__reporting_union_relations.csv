@@ -1,0 +1,5 @@
+id,name,Score,extra,_source
+1,a,10,,north
+2,b,20,,north
+3,c,,x,south
+4,d,,y,south
