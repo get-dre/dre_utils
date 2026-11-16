@@ -25,7 +25,7 @@ select date_{{ datepart }} from (
 {%- endmacro %}
 
 {% macro default___date_add(start, datepart, n) -%}
-dateadd({{ datepart }}, {{ n }}, cast({{ start }} as date))
+cast(dateadd({{ datepart }}, {{ n }}, cast({{ start }} as date)) as date)
 {%- endmacro %}
 
 {% macro duckdb___date_add(start, datepart, n) -%}

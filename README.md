@@ -148,8 +148,9 @@ select * from ({{ dre_utils.date_spine("'2026-01-01'", "'2026-04-01'", 'month') 
 One row per period from the start up to, not including, the end: a calendar to left join
 facts onto, so that quiet periods still show. The dates are SQL expressions, so quote literals
 (`"'2026-01-01'"`) or use `current_date`. It makes at most 10,000 periods. DuckDB and Postgres add
-an interval; other databases use `dateadd`, which Snowflake and Databricks have. Only DuckDB is
-tested here.
+an interval; other databases use `dateadd`, which Snowflake and Databricks have. The reporting
+macros are tested on DuckDB (in CI), Postgres and Databricks; Snowflake is untested. Integer
+division follows the database: Postgres truncates `7 / 2`, so cast one side for a decimal result.
 
 | Argument | |
 |---|---|
