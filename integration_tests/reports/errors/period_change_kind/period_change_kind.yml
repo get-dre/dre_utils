@@ -1,0 +1,5 @@
+queries:
+  - {query: seed_period_change_kind, tab: false}
+  - period_change_kind_q
+tags: [error]
+output: {format: csv}

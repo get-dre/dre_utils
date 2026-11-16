@@ -1,8 +1,9 @@
 # dre_utils
 
 Reusable macros for [DRE](https://github.com/get-dre/dre) reports: select all but a few columns,
-pivot values into columns, and run standard data tests, in SQL that works on any database DRE
-reads from.
+pivot values into columns, unpivot, union and deduplicate relations, build a date spine, add
+reporting helpers (safe division, shares, period changes), and run standard data tests, in SQL
+that works on any database DRE reads from.
 
 Dates and periods (`run.date.prev_month`, `period('mtd')`, timezones) are built into DRE itself;
 see [DRE's template docs](https://github.com/get-dre/dre/blob/master/docs/templates.md).
@@ -79,6 +80,149 @@ where region in ({{ dre_utils.column_values('sales', 'region', where='active') }
 
 The distinct values of a column as SQL literals, with the same `where`, `order_by`, `max` and
 `quote_values` as `pivot`.
+
+## `unpivot`
+
+```sql
+select * from ({{ dre_utils.unpivot('quarterly', exclude=['team']) }}) u
+-- select "team", 'q1' as "name", cast("q1" as varchar) as "value" from quarterly
+-- union all
+-- select "team", 'q2' as "name", cast("q2" as varchar) as "value" from quarterly
+```
+
+Columns into rows: one `select` per column, joined with `union all`, so it needs no `unpivot`
+keyword. It is a query to use as a subquery.
+
+| Argument | |
+|---|---|
+| `relation` | A table, a temp table or `ref('file')`; its columns come from `columns()`. |
+| `exclude` | Columns to keep as they are on every row (a list, or one name), matched case-insensitively. A name that isn't a column is an error, and so is leaving nothing to unpivot. |
+| `name_column`, `value_column` | The two new columns (default `name` and `value`). |
+| `cast_to` | The type every value is cast to, so columns of different types fit one column. Default: `varchar` (`string` on Databricks). |
+
+## `union_relations`
+
+```sql
+select * from ({{ dre_utils.union_relations(['sales_2025', 'sales_2026']) }}) s
+-- select "id" as "id", "total" as "total", null as "channel", 'sales_2025' as "_source" from sales_2025
+-- union all
+-- select "id" as "id", "total" as "total", "channel" as "channel", 'sales_2026' as "_source" from sales_2026
+```
+
+Stacks relations with `union all`, lining the columns up by name, matched case-insensitively.
+Columns come in the order they're first seen, with the first spelling. A relation without a
+column gets `null` there, uncast, so give such a column a type in the outer query if your
+database needs one.
+
+| Argument | |
+|---|---|
+| `relations` | A list of tables, temp tables or `ref('file')`. |
+| `source_column` | A column holding each row's relation, as given (default `_source`). |
+
+## `deduplicate`
+
+```sql
+select * from ({{ dre_utils.deduplicate('signups', 'email', 'created_at desc') }}) s
+-- select "email", "created_at", "plan" from (
+--   select t.*, row_number() over (partition by email order by created_at desc) as _dre_row_number from signups t
+-- ) d where _dre_row_number = 1
+```
+
+One row per key: the first by `order_by`. It uses `row_number()` in a subquery, not `qualify`,
+and returns the relation's columns only. Rows that tie on `order_by` are picked arbitrarily, so
+order by something unique when it matters.
+
+| Argument | |
+|---|---|
+| `relation` | A table, temp table or `ref('file')`. |
+| `partition_by` | The key, a column or a list of columns, as SQL. |
+| `order_by` | Which row wins, as SQL (`'created_at desc'`; a list also works). |
+
+## `date_spine`
+
+```sql
+select * from ({{ dre_utils.date_spine("'2026-01-01'", "'2026-04-01'", 'month') }}) m
+-- one row each for 2026-01-01, 2026-02-01 and 2026-03-01, in a column named date_month
+```
+
+One row per period from the start up to, not including, the end: a calendar to left join
+facts onto, so that quiet periods still show. The dates are SQL expressions, so quote literals
+(`"'2026-01-01'"`) or use `current_date`. It makes at most 10,000 periods. DuckDB and Postgres add
+an interval; other databases use `dateadd`, which Snowflake and Databricks have. Only DuckDB is
+tested here.
+
+| Argument | |
+|---|---|
+| `start_date`, `end_date` | SQL expressions for the first date and the exclusive end. |
+| `datepart` | `day` (default), `week`, `month`, `quarter` or `year`. Names the column: `date_day`, ... |
+
+## `safe_divide`
+
+```sql
+select {{ dre_utils.safe_divide('revenue', 'orders') }} as revenue_per_order from daily
+-- select revenue / nullif(orders, 0) as revenue_per_order from daily
+```
+
+A division that gives `null` instead of an error when the denominator is 0. Both arguments are SQL
+expressions. Integer division follows your database (Postgres truncates `7 / 2`): multiply the
+numerator by `1.0` for a fraction.
+
+## `group_by`
+
+```sql
+select region, channel, sum(total) from sales {{ dre_utils.group_by(2) }}
+-- select region, channel, sum(total) from sales group by 1, 2
+```
+
+`group by 1, 2, ..., n`: group by the first `n` columns of the select list. `n` is a whole number
+of at least 1.
+
+## `surrogate_key`
+
+```sql
+select {{ dre_utils.surrogate_key(['customer_id', 'lower(email)']) }} as customer_key from customers
+-- select md5(coalesce(cast(customer_id as varchar), '_dre_null_') || '-' || coalesce(cast(lower(email) as varchar), '_dre_null_')) as customer_key from customers
+```
+
+A stable key for a combination of columns: the `md5` of each value as text, with a null replaced by
+a marker so that it differs from an empty string, joined with `-`. The columns are SQL expressions,
+used as written. On Databricks the text type is `string`.
+
+## `pct_of_total`
+
+```sql
+select region, sum(total) as total, {{ dre_utils.pct_of_total('sum(total)') }} as share
+from sales group by region
+-- (sum(total)) * 1.0 / nullif(sum(sum(total)) over (), 0) as share
+```
+
+A value's share of the total, as a ratio (`0.25` for a quarter). With nothing else, the total
+covers every row the query returns; with `partition_by` it covers each partition. In a grouped
+query give the aggregate, as above; in a row-level query, give a column. A total of 0 gives `null`.
+
+| Argument | |
+|---|---|
+| `expr` | A SQL expression: a column, or an aggregate like `sum(total)` in a grouped query. |
+| `partition_by` | A column or list to take the total within, e.g. each region's share of its own region. |
+
+## `period_change`
+
+```sql
+select month, sum(total) as total, {{ dre_utils.period_change('sum(total)', 'month') }} as growth
+from sales group by month
+-- (sum(total)) * 1.0 / nullif(lag(sum(total)) over (order by month), 0) - 1 as growth
+```
+
+How a value changed from the previous row, in `order_by` order, using `lag()`. The first row, and
+a previous value of 0 for `pct`, give `null`. As with `pct_of_total`, give the aggregate in a
+grouped query. Order by a column in the group, so each row has one previous period.
+
+| Argument | |
+|---|---|
+| `expr` | A SQL expression. |
+| `order_by` | What puts the rows in time order: a column or a list. |
+| `partition_by` | Compare within each partition only, e.g. per region. |
+| `kind` | `pct` (default): the ratio change, `0.5` for 50% up. `diff`: the difference. Anything else is an error. |
 
 ## Data tests
 

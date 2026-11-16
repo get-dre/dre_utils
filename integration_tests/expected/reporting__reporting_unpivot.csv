@@ -1,0 +1,13 @@
+id,region,month,name,value
+1,apac,2026-01,amount,100
+1,apac,2026-01,units,4
+2,apac,2026-02,amount,150
+2,apac,2026-02,units,0
+3,apac,2026-03,amount,0
+3,apac,2026-03,units,5
+4,emea,2026-01,amount,50
+4,emea,2026-01,units,2
+5,emea,2026-02,amount,25
+5,emea,2026-02,units,
+6,emea,2026-03,amount,75
+6,emea,2026-03,units,3

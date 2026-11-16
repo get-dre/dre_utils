@@ -1,0 +1,5 @@
+queries:
+  - {query: seed_union_none, tab: false}
+  - union_none_q
+tags: [error]
+output: {format: csv}

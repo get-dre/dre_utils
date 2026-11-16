@@ -1,0 +1,5 @@
+queries:
+  - {query: seed_group_by_zero, tab: false}
+  - group_by_zero_q
+tags: [error]
+output: {format: csv}

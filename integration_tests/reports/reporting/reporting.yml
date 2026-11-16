@@ -1,0 +1,17 @@
+queries:
+  - {query: seed_reporting, tab: false}
+  - unpivot
+  - unpivot_options
+  - safe_divide
+  - date_spine_day
+  - date_spine_month
+  - deduplicate
+  - union_relations
+  - surrogate_key
+  - group_by
+  - pct_of_total
+  - pct_of_total_partition
+  - period_change_pct
+  - period_change_diff
+tags: [ok]
+output: {format: csv}

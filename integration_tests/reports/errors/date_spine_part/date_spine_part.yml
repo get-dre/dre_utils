@@ -1,0 +1,5 @@
+queries:
+  - {query: seed_date_spine_part, tab: false}
+  - date_spine_part_q
+tags: [error]
+output: {format: csv}
